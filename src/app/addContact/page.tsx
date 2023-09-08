@@ -1,10 +1,11 @@
 'use client';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import React, { FormEvent, useEffect, useState } from 'react';
 import { addContact, getContact, updateContact } from '@/controllers/contacts';
 import { isValidEmail, isValidPhoneNumber } from '@/lib/utils';
 import Input from '@/components/Input';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ContextValue } from '@/Context/Context';
 
 const inputs: Input[] = [
   {
@@ -34,35 +35,30 @@ const inputs: Input[] = [
 ];
 
 export default function ContactForm() {
-  const [fetchedId, setFetchedId] = useState<string | null>(null);
-  const [editState, setEditState] = useState(false);
   const queryClient = useQueryClient();
+  const { update, setUpdate } = ContextValue();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const id = searchParams.get('id');
-  useEffect(() => {
-    // Check if id has changed and fetch contact data if needed
-    if (id && id !== fetchedId) {
-      setEditState(true);
-      getContact(id).then((res) => {
-        setFormData({
-          fullName: res.fullName,
-          email: res.email,
-          phoneNumber: res.phoneNumber,
-          address: res.address,
-        });
-        setFetchedId(id); // Mark the id as fetched to prevent further calls
-      });
-    }
-  }, [id, fetchedId, searchParams]);
 
-  const { mutate, isLoading, isError } = useMutation({
+  const { mutateAsync, isLoading, isError } = useMutation({
     mutationFn: addContact,
     onSuccess: () => {
       // Invalidate and refetch
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
     },
   });
+
+  const {
+    mutateAsync: updateMutate,
+    isLoading: updateLoading,
+    isError: updateError,
+  } = useMutation({
+    mutationFn: () => updateContact(update._id, formData),
+    onSuccess: () => {
+      // Invalidate and refetch
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+    },
+  });
+
   const [formData, setFormData] = useState<Contact>({
     fullName: '',
     email: '',
@@ -76,6 +72,17 @@ export default function ContactForm() {
     phoneNumber: '',
     address: '',
   });
+
+  useEffect(() => {
+    if (update) setFormData(update);
+    else
+      setFormData({
+        fullName: '',
+        email: '',
+        phoneNumber: '',
+        address: '',
+      });
+  }, [update]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -112,12 +119,20 @@ export default function ContactForm() {
     if (Object.values(validationErrors).some((error) => error !== '')) {
       return;
     }
-    if (id) {
-      updateContact(id, formData);
-    } else mutate(formData);
+
+    if (!update) {
+      await mutateAsync(formData);
+    } else {
+      await updateMutate(update._id, formData);
+      setUpdate(null);
+    }
     router.push('/');
   }
 
+  const handleBackCLick = () => {
+    router.push('/');
+    setUpdate(null);
+  };
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
 
@@ -130,13 +145,10 @@ export default function ContactForm() {
       [name]: '', // Clear error when input changes
     });
   };
-
+  const loadingText = isLoading ? 'Submitting...' : updateLoading ? 'Updating...' : '';
   return (
     <div className="w-[90%] md:w-[30rem] mx-auto my-[5rem] border border-gray-500 bg-white/50 rounded-md p-6">
-      <span
-        onClick={() => router.push('/')}
-        className="bg-blue-600/50 p-3 rounded-md hover:bg-slate-700/50 absolute left-[3rem] top-[3rem] cursor-pointer"
-      >
+      <span onClick={handleBackCLick} className="bg-blue-600/50 p-3 rounded-md hover:bg-slate-700/50 absolute left-[3rem] top-[3rem] cursor-pointer">
         Go Back
       </span>
       <h2 className="pb-7 text-center text-2xl">Contact Form</h2>
@@ -157,7 +169,7 @@ export default function ContactForm() {
         ))}
         <button className="bg-blue-600 p-3 py-2 w-full w- rounded-md" type="submit">
           {/* {editState ? 'Update' : isLoading ? 'Submitting...' : 'Submit'} */}
-          {editState ? 'Update' : 'Submit'}
+          {!loadingText ? (update ? 'Update' : 'Submit') : loadingText}
         </button>
       </form>
     </div>
